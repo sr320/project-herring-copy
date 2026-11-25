@@ -1,0 +1,48 @@
+# What `herring mirror-fastq` mirrors to gannet, in this order (PLAN.md 3.2).
+#
+# Until metadata/samples.tsv lists runs for a project, every run of that
+# project matching the filters below is mirrored. Once it does, exactly the
+# runs it marks `include` are.
+#
+# Run counts and sizes are from ENA on 2026-11-25 (metadata/ena-runs-*.tsv);
+# `herring mirror-fastq --plan` gives the current figures.
+version: "0.1.0"
+
+library_strategies: [WGS]
+platforms: [ILLUMINA]
+library_sources: [GENOMIC]
+taxids: [7950, 30724]        # Clupea harengus, Clupea pallasii
+
+projects:
+  # Truth set: Illumina reads of the fish with haplotype-resolved assemblies.
+  - accession: PRJNA1023520
+    note: Atlantic; 12 Illumina runs (the PacBio runs are left out by platform)
+  # Pacific temporal series.
+  - accession: PRJNA972458
+    note: Pacific; 892 runs at ~2x; Canada and USA, 1991-2017
+  - accession: PRJNA1356517
+    note: Pacific; 120 runs at ~5-6x; USA, 1996-2023
+  # Atlantic.
+  - accession: PRJNA642736
+    note: Atlantic and Pacific; 392 runs, pools and individuals; 1979-2013
+  - accession: PRJNA1137584
+    note: Atlantic; 86 runs at ~14x; Baltic, 2020-2022
+  - accession: PRJEB25669
+    note: Atlantic; 111 Illumina runs at ~5x; Faroe Islands, 2015-2017
+  - accession: PRJNA338612
+    note: Atlantic and Pacific; 33 runs; North Atlantic, 2014
+  - accession: PRJNA930418
+    note: Atlantic; 44 runs, likely pools; NW Atlantic
+  - accession: PRJNA356817
+    note: Atlantic; 26 deep runs; metadata sparse
+  - accession: PRJEB32358
+    note: Atlantic; 13 deep runs; Baltic
+  - accession: PRJNA179107
+    note: Atlantic; early pools
+  - accession: PRJNA179109
+    note: Atlantic; early pools
+  - accession: PRJNA179110
+    note: Atlantic; early pools (WGA and RNA-seq runs left out by strategy)
+
+# Not mirrored: ancient DNA (PRJEB52723, PRJEB77597, PRJEB54658), a stretch
+# goal; RAD-seq and RNA-seq projects.

@@ -1,0 +1,19 @@
+# Where every large file of this project is kept (PLAN.md section 4). Nothing
+# large is committed; manifests in the repo list each file's URL, checksum and size.
+#
+# NOT YET CHECKED for this project: the directory below has to be created on
+# gannet (docs/fastq_mirror.md, "Once, before the first run"). project-white-whale
+# checked on 2026-10-23 that the volume had 171 TB free and that raven reaches
+# gannet over SSH with key auth (a lab Mac could not).
+version: "0.1.0"
+host: gannet
+hostname: gannet.fish.washington.edu
+path: /volume1/v1_web/project-herring-copy
+url_base: https://gannet.fish.washington.edu/v1_web/project-herring-copy
+upload_target: sr320@gannet.fish.washington.edu:/volume1/v1_web/project-herring-copy
+layout:
+  raw: "raw/<BIOPROJECT>/"                       # mirrored FASTQ; ledger raw/<BIOPROJECT>/mirror_manifest.tsv
+  references: "reference/<ASSEMBLY>/"
+  alignments: "alignments/<BIOPROJECT>/<sample>/"
+  depth: "depth/<BIOPROJECT>/<sample>/"
+  calls: "calls/"
