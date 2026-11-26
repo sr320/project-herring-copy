@@ -1,0 +1,40 @@
+# Where each phase of PLAN.md section 5 stands, shown on the dashboard.
+# status: done | in_progress | not_started. Edit `note` and `status` as work moves.
+version: "0.1.0"
+phases:
+  - id: "0"
+    title: Inventory
+    status: in_progress
+    note: ENA run inventory taken 2026-11-25; curated metadata/samples.tsv and literature review still to do.
+  - id: 0b
+    title: Mirror to gannet
+    status: in_progress
+    note: herring mirror-fastq vendored from project-white-whale; first test project (PRJNA179109) running on raven.
+  - id: "1"
+    title: Pilot
+    status: not_started
+    note: About 40 samples on raven; workflow with a klone profile; cost per sample measured.
+  - id: "2"
+    title: Validation
+    status: not_started
+    note: Truth set from the haplotype-resolved assemblies; downsampling to 15x, 5x and 2x.
+  - id: "3"
+    title: Scale-out
+    status: not_started
+    note: Alignment and depth on Hyak ckpt-all, one BioProject batch at a time.
+  - id: "4"
+    title: CNV catalogue
+    status: not_started
+    note: Population and individual tiers; gene family copy numbers.
+  - id: "5"
+    title: Space
+    status: not_started
+    note: Copy number differentiation and environment association, within then across studies.
+  - id: "6"
+    title: Time
+    status: not_started
+    note: Change in copy number against drift, Pacific series first.
+  - id: "7"
+    title: Synthesis
+    status: not_started
+    note: Parallelism between species, function, expression.

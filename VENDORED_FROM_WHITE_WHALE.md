@@ -15,6 +15,7 @@ The checkout copied from was at `05d3f6b`.
 | `src/herring/checksums.py` | `src/whale/checksums.py` | `4793677` | None |
 | `src/herring/cli.py` (`mirror-fastq`, `_table`) | `src/whale/cli.py` | `05d3f6b` | That command only; default accessions from `data/mirror_projects.yaml` |
 | `tests/test_mirror.py`, `tests/test_net.py` | same paths | `4062784` | WGS fixtures; selection tests rewritten for the config and sample sheet |
+| `src/herring/dashboard.py`, `site/index.html`, `.github/workflows/pages.yml` (`herring build-dashboard`) | `src/whale/dashboard.py`, `site/index.html`, `.github/workflows/pages.yml` | `05d3f6b` | Rewritten for this project: phases, mirror progress per BioProject, sampling through time; page styles, tiles, tooltip and Pages workflow kept |
 | `data/data_host.yaml` | same path | `05d3f6b` | This project's directory on gannet; layout for alignments, depth and calls |
 | `docs/fastq_mirror.md` | same path | `05d3f6b` | Shortened; herring run selection |
 

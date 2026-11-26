@@ -124,3 +124,76 @@ def mirror_fastq_cmd(accessions, dest, staging, source, jobs, threads, tmp, rate
         for what, why in res["failed"]:
             click.echo(click.style(f"  {what}: {why}", fg="red"))
         sys.exit(1)
+
+
+@main.command("build-dashboard")
+@click.option("--out", default=None, type=click.Path(dir_okay=False), help="Default: site/data.json.")
+@click.option("--no-ena", is_flag=True, help="Do not ask ENA for each project's FASTQ sizes.")
+@click.option("--no-mirror", is_flag=True, help="Do not read the gannet mirror ledgers.")
+@click.option("--remote", default="origin", show_default=True)
+def build_dashboard_cmd(out, no_ena, no_mirror, remote):
+    """Write site/data.json for the GitHub Pages dashboard (site/index.html)."""
+    import urllib.error
+
+    from herring.dashboard import build, write
+    from herring.ena import ENAError
+    from herring.mirror import (
+        LEDGER_NAME,
+        MirrorError,
+        configured_accessions,
+        load_data_host,
+        read_ledger_text,
+        wanted_files,
+    )
+    from herring.net import get_text
+
+    repo = _repo()
+    accs = configured_accessions(repo)
+    wanted: dict = {}
+    for acc in accs:
+        if no_ena:
+            wanted[acc] = None
+            continue
+        try:
+            wanted[acc] = wanted_files(repo, acc)[0]
+        except (ENAError, MirrorError, urllib.error.URLError, OSError) as exc:
+            click.echo(click.style(f"ENA unreadable for {acc}: {exc}", fg="yellow"), err=True)
+            wanted[acc] = None
+
+    base = load_data_host(repo).get("url_base")
+    ledgers = None
+    if base and not no_mirror:
+        ledgers = {}
+        for acc in accs:
+            try:
+                ledgers[acc] = read_ledger_text(get_text(f"{base.rstrip('/')}/raw/{acc}/{LEDGER_NAME}"))
+            except urllib.error.HTTPError as exc:
+                if exc.code != 404:
+                    click.echo(click.style(f"mirror ledger unreadable for {acc}: {exc}", fg="yellow"), err=True)
+                    ledgers = None
+                    break
+                ledgers[acc] = {}          # nothing mirrored yet
+            except (urllib.error.URLError, OSError) as exc:
+                click.echo(click.style(f"gannet unreachable: {exc}", fg="yellow"), err=True)
+                ledgers = None
+                break
+
+    data = build(repo, wanted=wanted, ledgers=ledgers, repo_url=_repo_url(repo, remote), url_base=base)
+    path = write(data, Path(out) if out else repo / "site" / "data.json")
+    t = data["totals"]
+    click.echo(f"Wrote {path}: {t['projects']} projects, {t['runs']} runs, {t['gb_planned']} GB planned, "
+               f"{t['mirrored_gb']} GB on gannet ({t['projects_complete']} complete)")
+
+
+def _repo_url(repo: Path, remote: str) -> str:
+    """The GitHub URL of the repository: from Actions' environment, else the remote."""
+    import os
+    import re
+    import subprocess
+
+    if os.environ.get("GITHUB_REPOSITORY"):
+        return f"{os.environ.get('GITHUB_SERVER_URL', 'https://github.com')}/{os.environ['GITHUB_REPOSITORY']}"
+    origin = subprocess.run(["git", "remote", "get-url", remote], cwd=repo, capture_output=True,
+                            text=True).stdout.strip()
+    m = re.search(r"github\.com[:/](.+?)(\.git)?$", origin)
+    return f"https://github.com/{m.group(1)}" if m else ""
