@@ -9,7 +9,7 @@ The checkout copied from was at `05d3f6b`.
 
 | Here | White Whale source | Commit | Changes |
 |---|---|---|---|
-| `src/herring/mirror.py` (`herring mirror-fastq`) | `src/whale/mirror.py` | `4c374e1` | Run selection only: BioProjects and filters (library strategy, platform, library source, taxa) from `data/mirror_projects.yaml`; `metadata/samples.tsv` `include` column in place of a registered study's `fastq_manifest.tsv`; no backlog or registry. Download, conversion, checks, stores, ledger and locks unchanged. `HERRING_*` variables |
+| `src/herring/mirror.py` (`herring mirror-fastq`) | `src/whale/mirror.py` | `4c374e1` | Run selection only: BioProjects and filters (library strategy, platform, library source, taxa) from `data/mirror_projects.yaml`; `metadata/samples.tsv` `include` column in place of a registered study's `fastq_manifest.tsv`; no backlog or registry. `exclude_runs` in the config. ENA downloads are also structure-checked (whole records, ENA's read count) and a run's files are published together; white-whale's ENA path checks the MD5 only. Download, conversion, stores, ledger and locks unchanged. `HERRING_*` variables |
 | `src/herring/ena.py` | `src/whale/ena.py` | `4793677` | Only `fetch_run_report` and `run_fastq_files` kept; report also asks for `instrument_platform` and `library_source`; taxa 7950 and 30724 |
 | `src/herring/net.py` | `src/whale/net.py` | `4793677` | None |
 | `src/herring/checksums.py` | `src/whale/checksums.py` | `4793677` | None |

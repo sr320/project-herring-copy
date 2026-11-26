@@ -38,12 +38,15 @@ BASE = "ftp.sra.ebi.ac.uk/vol1/fastq/SRR000"
 
 
 def _fq(run, mate):
-    return (f"@{run}.{mate}\nACGT\n+\nIIII\n" * 500).encode()
+    # Varied reads, so the gzipped fixture is large enough to download in several pieces.
+    def seq(i):
+        return "".join("ACGT"[b % 4] for b in hashlib.md5(f"{run}{mate}{i}".encode()).digest()[:4])
+    return "".join(f"@{run}.{mate}.{i}\n{seq(i)}\n+\nIIII\n" for i in range(500)).encode()
 
 
 class FakeENA:
     def __init__(self):
-        self.files = {f"{run}_{m}.fastq.gz": _fq(run, m) for run in ("SRR1", "SRR2") for m in (1, 2)}
+        self.files = {f"{run}_{m}.fastq.gz": gzip.compress(_fq(run, m), mtime=0) for run in ("SRR1", "SRR2") for m in (1, 2)}
         self.cut_once: set[str] = set()     # fail these mid-stream once
         self.short_once: set[str] = set()   # end these early once, without an error
         self.corrupt: set[str] = set()      # serve wrong bytes every time
@@ -169,6 +172,50 @@ def test_sample_sheet_without_the_project_falls_back_to_filters(repo, ena):
     assert {f["run_accession"] for f in files} == {"SRR1", "SRR2"}
 
 
+def _split_first_read(text):
+    lines = text.split("\n")
+    lines[1] = lines[1][:2] + "\n" + lines[1][2:]
+    return "\n".join(lines)
+
+
+def test_excluded_runs_are_not_mirrored(repo, ena):
+    cfg = repo / "data/mirror_projects.yaml"
+    cfg.write_text(cfg.read_text() + '\nexclude_runs:\n  SRR1: "malformed"\n')
+    files, notes = wanted_files(repo, ACC)
+    assert {f["run_accession"] for f in files} == {"SRR2"}
+    assert any("excluded" in n and "SRR1" in n for n in notes)
+
+
+def test_malformed_ena_file_keeps_the_whole_run_off_the_host(repo, ena, tmp_path):
+    good = gzip.decompress(ena.files["SRR1_2.fastq.gz"]).decode()
+    # A stray line break inside one read, as in SRR611629's read 2 (same MD5 as ENA serves).
+    ena.files["SRR1_2.fastq.gz"] = gzip.compress(_split_first_read(good).encode())
+    res = _run(repo, tmp_path)
+    assert [f for f, _ in res["failed"]] == [f"{ACC}/SRR1"]
+    assert "not whole FASTQ records" in res["failed"][0][1]
+    host = tmp_path / "host/raw" / ACC
+    assert not (host / "SRR1_1.fastq.gz").exists() and not (host / "SRR1_2.fastq.gz").exists()
+    assert set(LocalStore(tmp_path / "host").read_ledger(ACC)) == {"SRR2_1.fastq.gz", "SRR2_2.fastq.gz"}
+    assert not list((tmp_path / "staging" / ACC).glob("SRR1_*"))
+
+
+def test_ena_file_with_too_few_reads_is_rejected(repo, ena, tmp_path):
+    lines = gzip.decompress(ena.files["SRR2_1.fastq.gz"]).decode().splitlines(keepends=True)
+    ena.files["SRR2_1.fastq.gz"] = gzip.compress("".join(lines[:-4]).encode())
+    res = _run(repo, tmp_path)
+    assert [f for f, _ in res["failed"]] == [f"{ACC}/SRR2"]
+    assert "499 records, ENA reports 500" in res["failed"][0][1]
+
+
+def test_failing_both_sources_suggests_exclusion(repo, ncbi, ena, tmp_path):
+    good = gzip.decompress(ena.files["SRR1_2.fastq.gz"]).decode()
+    ena.files["SRR1_2.fastq.gz"] = gzip.compress(_split_first_read(good).encode())
+    ncbi.missing.add("SRR1")
+    res = _run(repo, tmp_path, source="ncbi")
+    msg = dict(res["failed"]).get(f"{ACC}/SRR1", "")
+    assert "NCBI's copy also failed" in msg and "exclude_runs" in msg
+
+
 def test_configured_projects_are_the_default(repo):
     accs = mirror_mod.configured_accessions(repo)
     assert accs[0] == "PRJNA1023520" and len(accs) == len(set(accs))
@@ -191,7 +238,7 @@ def test_mirror_end_to_end_and_rerun(repo, ena, tmp_path):
 
     # A file missing from the host, or reprocessed by ENA, is fetched again.
     (host / "SRR1_1.fastq.gz").unlink()
-    ena.files["SRR2_1.fastq.gz"] = b"@new\nA\n+\nI\n"
+    ena.files["SRR2_1.fastq.gz"] = gzip.compress(_fq("SRR2", 9))
     plan = plan_mirror(repo, [ACC], LocalStore(tmp_path / "host"))[0]
     assert {f["file"] for f in plan["todo"]} == {"SRR1_1.fastq.gz", "SRR2_1.fastq.gz"}
     assert any("MD5 changed" in n for n in plan["notes"])
@@ -447,7 +494,8 @@ def test_ncbi_falls_back_to_ena_per_run(repo, ncbi, ena, tmp_path):
 
 
 def test_ncbi_read_count_mismatch_falls_back(repo, ncbi, ena, tmp_path):
-    short = _fq("SRR1", 2)[: -len(b"@SRR1.2\nACGT\n+\nIIII\n")]
+    # One whole record short, so the count check (not the record check) catches it.
+    short = b"".join(_fq("SRR1", 2).splitlines(keepends=True)[:-4])
     ncbi.sra["SRR1"] = json.dumps({"_1": _fq("SRR1", 1).decode(), "_2": short.decode()}).encode()
     res = _run(repo, tmp_path, source="ncbi")
     assert res["sources"] == {"ncbi_sra": 2, "ena": 2}

@@ -97,6 +97,11 @@ def load_mirror_config(repo: Path) -> dict:
     return yaml.safe_load((Path(repo) / MIRROR_CONFIG).read_text())
 
 
+def excluded_runs(repo: Path) -> dict[str, str]:
+    """Runs never to mirror, with the reason (`exclude_runs` in data/mirror_projects.yaml)."""
+    return {str(k): str(v) for k, v in (load_mirror_config(repo).get("exclude_runs") or {}).items()}
+
+
 def included_runs(repo: Path, accession: str) -> set[str] | None:
     """Runs metadata/samples.tsv marks `include` for this BioProject; None if it lists none of its runs.
 
@@ -117,6 +122,11 @@ def wanted_files(repo: Path, accession: str, library_strategies: list[str] | Non
     """The FASTQ files to mirror for one accession, with ENA's current MD5s, and notes on what was left out."""
     runs = (fetch_runs or fetch_run_report)(accession)
     notes = []
+    excluded = excluded_runs(repo)
+    dropped = sorted(r["run_accession"] for r in runs if r["run_accession"] in excluded)
+    if dropped:
+        notes.append(f"not mirrored (excluded in {MIRROR_CONFIG}): {dropped}")
+        runs = [r for r in runs if r["run_accession"] not in excluded]
     keep_runs = included_runs(repo, accession)
     if keep_runs is not None:
         kept = [r for r in runs if r["run_accession"] in keep_runs]
@@ -154,7 +164,8 @@ def wanted_files(repo: Path, accession: str, library_strategies: list[str] | Non
             files.append({"run_accession": r["run_accession"], "mate": str(idx + 1),
                           "file": url.rsplit("/", 1)[-1], "url": f"ftp://{url}", "md5": md5,
                           "bytes": size, "source": source, "read_count": r.get("read_count") or "",
-                          "base_count": r.get("base_count") or ""})
+                          "base_count": r.get("base_count") or "",
+                          "library_layout": r.get("library_layout") or ""})
     if no_fastq:
         notes.append(f"{len(no_fastq)} run(s) have no usable FASTQ: {no_fastq[:5]}")
     names = [f["file"] for f in files]
@@ -466,6 +477,47 @@ def plan_mirror(repo: Path, accessions: list[str], store, *, library_strategies=
     return plans
 
 
+# --- checking a gzipped FASTQ's structure -----------------------------------------
+
+def gz_line_count(path: Path, pigz: str | None = None) -> int:
+    """Lines in a gzipped file (a last line without a newline counts)."""
+    cmd = [pigz, "-dc", str(path)] if pigz else ["gzip", "-dc", str(path)]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+    lines, last = 0, b"\n"
+    for chunk in iter(lambda: proc.stdout.read(CHUNK * 4), b""):
+        lines += chunk.count(b"\n")
+        last = chunk[-1:]
+    proc.stdout.close()
+    if proc.wait() != 0:
+        raise MirrorError(f"{path.name}: {cmd[0]} -dc exited {proc.returncode}; the file is not valid gzip")
+    return lines + (last != b"\n")
+
+
+def expected_records(f: dict, n_files: int) -> int | None:
+    """FASTQ records this file must hold by ENA's read_count, or None when that cannot be said.
+
+    A paired run's two files and a single-end run's one file each hold read_count
+    records; any other arrangement (one interleaved file, say) is not checked.
+    """
+    if not f.get("read_count"):
+        return None
+    paired = (f.get("library_layout") or "").upper() == "PAIRED"
+    if (paired and n_files == 2) or (not paired and n_files == 1):
+        return int(f["read_count"])
+    return None
+
+
+def check_fastq_structure(path: Path, f: dict, n_files: int, pigz: str | None = None) -> None:
+    """Whole 4-line records, as many as ENA's read_count says. ENA's MD5 alone cannot catch a
+    deposited file that is itself malformed (a stray line break inside a read, say)."""
+    want = expected_records(f, n_files)
+    lines = gz_line_count(path, pigz)
+    if lines % 4:
+        raise MirrorError(f"{f['file']}: {lines} lines is not whole FASTQ records")
+    if want is not None and lines // 4 != want:
+        raise MirrorError(f"{f['file']}: {lines // 4} records, ENA reports {want} reads")
+
+
 # --- NCBI: .sra from NCBI's AWS open-data bucket, converted on this machine -----------
 
 class NcbiUnavailable(MirrorError):
@@ -578,7 +630,7 @@ def convert_sra(sra: Path, outdir: Path, files: list[dict], *, tools: dict, thre
 
 def mirror(repo: Path, accessions: list[str], store, *, staging: Path, jobs: int = 4,
            rate_mb: float | None = None, max_gb: float | None = None, verify_remote: bool = True,
-           source: str = "ncbi", threads: int = 4, tmp: Path | None = None,
+           source: str = "ncbi", threads: int = 4, tmp: Path | None = None, verify_fastq: bool = True,
            library_strategies=None, fetch_runs=None, opener=None,
            log=print, today: str | None = None) -> dict:
     """Download, verify and upload what the plan says is missing; record each file in the ledger.
@@ -619,7 +671,7 @@ def mirror(repo: Path, accessions: list[str], store, *, staging: Path, jobs: int
             for run, fs in todo_runs.items():
                 if budget is not None and budget <= 0:
                     break
-                tasks.append((p["accession"], run, fs, len(fs) == len(by_run[run])))
+                tasks.append((p["accession"], run, fs, len(fs) == len(by_run[run]), len(by_run[run])))
                 if budget is not None:
                     budget -= sum(int(f["bytes"] or 0) for f in fs)
 
@@ -637,7 +689,10 @@ def mirror(repo: Path, accessions: list[str], store, *, staging: Path, jobs: int
                 record_in_ledger(store, acc, {**row, "bytes": str(size), "mirrored_on": today}, staging)
             return size
 
-        def from_ena(acc: str, f: dict) -> int:
+        pigz = os.environ.get("HERRING_PIGZ") or shutil.which("pigz")
+
+        def fetch_ena(acc: str, f: dict, n_files: int) -> Path:
+            """Download one ENA file to staging, MD5-checked against ENA and structure-checked."""
             if not f["md5"]:
                 raise MirrorError(f"{f['file']}: ENA lists no MD5 for it, so it cannot be verified")
             local = staging / acc / f["file"]
@@ -652,7 +707,25 @@ def mirror(repo: Path, accessions: list[str], store, *, staging: Path, jobs: int
                 if got_md5 != f["md5"]:
                     local.unlink()
                     raise MirrorError(f"{f['file']}: MD5 {got_md5} does not match ENA's {f['md5']} (twice)")
-            return publish(acc, {**f, "ena_md5": f["md5"]}, local)
+            if verify_fastq:
+                try:
+                    check_fastq_structure(local, f, n_files, pigz)
+                except MirrorError:
+                    local.unlink(missing_ok=True)
+                    raise
+            return local
+
+        def from_ena(acc: str, fs: list[dict], n_files: int) -> list[tuple[str, int]]:
+            """All of a run's missing files from ENA; none is published unless every one passes."""
+            locals_ = []
+            try:
+                for f in fs:
+                    locals_.append((f, fetch_ena(acc, f, n_files)))
+            except MirrorError:
+                for _, path in locals_:
+                    path.unlink(missing_ok=True)
+                raise
+            return [(f["file"], publish(acc, {**f, "ena_md5": f["md5"]}, path)) for f, path in locals_]
 
         def from_ncbi(acc: str, run: str, fs: list[dict]) -> list[tuple[str, int]]:
             info = locate_sra(run)
@@ -683,13 +756,21 @@ def mirror(repo: Path, accessions: list[str], store, *, staging: Path, jobs: int
                 shutil.rmtree(work, ignore_errors=True)
                 shutil.rmtree(tmp / run, ignore_errors=True)
 
-        def one_run(acc: str, run: str, fs: list[dict], whole: bool) -> list[tuple[str, int, str]]:
+        def one_run(acc: str, run: str, fs: list[dict], whole: bool, n_files: int) -> list[tuple[str, int, str]]:
+            ncbi_problem = None
             if source == "ncbi" and whole:
                 try:
                     return [(name, size, "ncbi_sra") for name, size in from_ncbi(acc, run, fs)]
                 except NcbiUnavailable as exc:
+                    ncbi_problem = str(exc)
                     log(f"note {acc}/{run}: NCBI not used ({exc}); fetching from ENA")
-            return [(f["file"], from_ena(acc, f), "ena") for f in fs]
+            try:
+                return [(name, size, "ena") for name, size in from_ena(acc, fs, n_files)]
+            except MirrorError as exc:
+                if ncbi_problem:
+                    raise MirrorError(f"{exc}; NCBI's copy also failed ({ncbi_problem}). If the deposited "
+                                      f"data is malformed, add {run} to exclude_runs in {MIRROR_CONFIG}") from None
+                raise
 
         with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
             futures = {pool.submit(one_run, *t): t for t in tasks}

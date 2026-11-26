@@ -44,9 +44,20 @@ On 2026-11-25 the plan came to 3,500 files and 6.7 TB:
 4. The file is copied to gannet with rsync, its MD5 recomputed there, and a row
    added to `raw/<BIOPROJECT>/mirror_manifest.tsv`.
 
-A run falls back to ENA's FASTQ (checked against ENA's MD5) when NCBI has no
-full-quality copy or a check fails. A converted FASTQ is not byte-identical to
-ENA's, so check copies against the ledger's `md5`, not ENA's.
+A run falls back to ENA's FASTQ when NCBI has no full-quality copy or a check
+fails. ENA files are checked against ENA's MD5 and then decompressed to check
+that each holds whole 4-line records, as many as ENA's read count. A run's files
+are published together or not at all. A converted FASTQ is not byte-identical
+to ENA's, so check copies against the ledger's `md5`, not ENA's.
+
+### Runs that fail both ways
+
+Some deposited runs are malformed at both archives, so neither copy passes.
+The first case was PRJNA179109 (2012): in SRR611629, read 2 has stray bytes at
+read ends (one of them a line break, which splits a record), and read 1 has
+placeholder qualities. The mirror reports such a run as failed and says so.
+Add it to `exclude_runs` in `data/mirror_projects.yaml`, with the reason, so
+the nightly mirror stops fetching it; `--plan` lists excluded runs.
 
 ## Once, before the first run
 

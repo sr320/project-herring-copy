@@ -44,5 +44,13 @@ projects:
   - accession: PRJNA179110
     note: Atlantic; early pools (WGA and RNA-seq runs left out by strategy)
 
+# Runs never to mirror, with the reason. A run belongs here when both NCBI's and
+# ENA's copies fail the mirror's checks, so the nightly mirror stops retrying it.
+exclude_runs:
+  SRR611629: "PRJNA179109; read 2 malformed in both NCBI and ENA copies (stray bytes, one a line break, at read 1,169,408); read 1 qualities are placeholders. Inspected 2026-11-25"
+  SRR611627: "PRJNA179109; read 2 not whole FASTQ records after NCBI conversion; same 2012 submission as SRR611629, not inspected"
+  SRR611636: "PRJNA179109; mates differ after NCBI conversion; same 2012 submission as SRR611629, not inspected"
+  SRR611637: "PRJNA179109; read 2 not whole FASTQ records after NCBI conversion; same 2012 submission as SRR611629, not inspected"
+
 # Not mirrored: ancient DNA (PRJEB52723, PRJEB77597, PRJEB54658), a stretch
 # goal; RAD-seq and RNA-seq projects.

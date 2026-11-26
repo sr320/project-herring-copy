@@ -56,9 +56,11 @@ def main():
               help="Mirror runs with this ENA library_strategy (repeatable; default: those in "
                    "data/mirror_projects.yaml). Projects listed in metadata/samples.tsv use its include column.")
 @click.option("--no-verify-remote", is_flag=True, help="Skip re-computing each MD5 on the data host.")
+@click.option("--no-verify-fastq", is_flag=True,
+              help="Skip decompressing ENA downloads to check whole records and ENA's read count.")
 @click.option("--plan", "plan_only", is_flag=True, help="Show what is mirrored and what is left; download nothing.")
 def mirror_fastq_cmd(accessions, dest, staging, source, jobs, threads, tmp, rate_mb, max_gb,
-                     library_strategies, no_verify_remote, plan_only):
+                     library_strategies, no_verify_remote, no_verify_fastq, plan_only):
     """Prefetch public herring FASTQ to the data host (gannet), verified and resumable.
 
     By default each run is taken from NCBI as .sra (MD5-checked), converted with
@@ -86,7 +88,7 @@ def mirror_fastq_cmd(accessions, dest, staging, source, jobs, threads, tmp, rate
             plans = plan_mirror(repo, accs, store, library_strategies=list(library_strategies) or None)
         else:
             res = mirror(repo, accs, store, staging=Path(staging) if staging else default_staging(repo),
-                         jobs=jobs, rate_mb=rate_mb, max_gb=max_gb, verify_remote=not no_verify_remote,
+                         jobs=jobs, rate_mb=rate_mb, max_gb=max_gb, verify_remote=not no_verify_remote, verify_fastq=not no_verify_fastq,
                          source=source, threads=threads, tmp=Path(tmp) if tmp else None,
                          library_strategies=list(library_strategies) or None, log=click.echo)
             if res["locked"]:
