@@ -9,7 +9,7 @@ phases:
   - id: 0b
     title: Mirror to gannet
     status: in_progress
-    note: herring mirror-fastq vendored from project-white-whale; first test project (PRJNA179109) running on raven.
+    note: Nightly cron on raven since 2026-11-26. 948 GB on gannet by 2026-11-27; PRJNA1023520 and PRJNA179109 complete (4 malformed 2012 runs excluded), PRJNA972458 71% (1,262 of 1,784 files). All from NCBI so far.
   - id: "1"
     title: Pilot
     status: not_started
